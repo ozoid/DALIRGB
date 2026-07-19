@@ -60,6 +60,8 @@ public:
   uint8_t tx_state(); //low level tx state, returns DALI_RESULT_COLLISION, DALI_RESULT_TRANSMITTING or DALI_OK
   uint8_t txcollisionhandling; //collision handling DALI_TX_COLLISSION_AUTO,DALI_TX_COLLISSION_OFF,DALI_TX_COLLISSION_ON
   uint32_t milli(); //esp32 as 32-bit controller needs millis to be 32-bit to rollover correctly
+  uint8_t debug_get_last_rx_sample_bits() const;
+  uint8_t debug_copy_last_rx_samples(uint8_t* out, uint8_t max_bytes) const;
   Dali() : txcollisionhandling(DALI_TX_COLLISSION_AUTO), busstate(0), /* ticks(0), _milli(0), */ idlecnt(0) {}; //initialize variables
   
   //-------------------------------------------------
@@ -115,6 +117,10 @@ private:
   volatile uint8_t txspcnt;        //sample count since last transmitted bit
   volatile uint8_t txhigh;         //currently bus is high
   volatile uint8_t txcollision;    //collision count (capped at 255)  
+
+  //debug capture: first 64 raw sampled bits after start condition
+  volatile uint8_t dbg_last_rx_samples[8];
+  volatile uint8_t dbg_last_rx_sample_bits;
 
   //hardware abstraction layer
   uint8_t (*bus_is_high)(); //returns !=0 if DALI bus is in high (non-asserted) state

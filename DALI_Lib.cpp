@@ -65,6 +65,10 @@ void Dali::_init()
     _set_busstate_idle();
     rxstate = EMPTY;
     txcollision = 0;
+    dbg_last_rx_sample_bits = 0;
+    for (uint8_t i = 0; i < 8; i++) {
+        dbg_last_rx_samples[i] = 0;
+    }
 }
 
 uint32_t Dali::milli()
@@ -361,6 +365,17 @@ uint8_t Dali::rx(uint8_t* ddata)
         return 1;
     case COMPLETED:
         rxstate = EMPTY;
+
+        // Keep first 64 raw sampled bits for external debugging.
+        dbg_last_rx_sample_bits = (rxpos * 8 > 64) ? 64 : (rxpos * 8);
+        uint8_t dbg_bytes = (dbg_last_rx_sample_bits + 7) >> 3;
+        for (uint8_t i = 0; i < dbg_bytes; i++) {
+            dbg_last_rx_samples[i] = rxdata[i];
+        }
+        for (uint8_t i = dbg_bytes; i < 8; i++) {
+            dbg_last_rx_samples[i] = 0;
+        }
+
         uint8_t dlen = _man_decode(rxdata, rxpos * 8, ddata);
 
 #ifdef DALI_DEBUG
@@ -389,6 +404,28 @@ uint8_t Dali::rx(uint8_t* ddata)
         return dlen;
     }
     return 0;
+}
+
+uint8_t Dali::debug_get_last_rx_sample_bits() const
+{
+    return dbg_last_rx_sample_bits;
+}
+
+uint8_t Dali::debug_copy_last_rx_samples(uint8_t* out, uint8_t max_bytes) const
+{
+    if (out == nullptr || max_bytes == 0)
+        return 0;
+
+    uint8_t bytes = (dbg_last_rx_sample_bits + 7) >> 3;
+    if (bytes > max_bytes)
+        bytes = max_bytes;
+    if (bytes > 8)
+        bytes = 8;
+
+    for (uint8_t i = 0; i < bytes; i++) {
+        out[i] = dbg_last_rx_samples[i];
+    }
+    return bytes;
 }
 
 //=================================================================

@@ -18,6 +18,10 @@ static bool dali_timer_started = false;
 static QueueHandle_t dali_rx_frame_queue = NULL;
 static uint8_t dali_device_short_address = 0xFF;
 static uint16_t dali_device_group_mask = 0;
+static volatile bool dali_promiscuous_mode = false;
+static volatile bool dali_listen_only = true;
+static volatile bool dali_rx_inverted = false;
+static volatile DALI_DebugStats dali_stats = {};
 
 enum DaliOp : uint8_t {
   DALI_OP_CMD,
@@ -36,6 +40,76 @@ struct DaliRequest {
 
 static QueueHandle_t dali_queue = NULL;
 static TaskHandle_t dali_task_handle = NULL;
+static bool dali_probe_init = false;
+static uint8_t dali_probe_last_level = 1;
+static uint16_t dali_probe_run_len = 0;
+
+static void dali_probe_commit_run(uint16_t run_len)
+{
+  if (run_len <= 2) {
+    dali_stats.rx_run_1_2++;
+  } else if (run_len <= 5) {
+    dali_stats.rx_run_3_5++;
+  } else if (run_len <= 12) {
+    dali_stats.rx_run_6_12++;
+  } else {
+    dali_stats.rx_run_13_plus++;
+  }
+}
+
+static uint8_t dali_guess_signal_kind()
+{
+  if (dali_stats.rx_raw_low_samples == 0 && dali_stats.rx_raw_high_samples > 1000)
+    return 1; // stuck high
+  if (dali_stats.rx_raw_high_samples == 0 && dali_stats.rx_raw_low_samples > 1000)
+    return 2; // stuck low
+
+  uint32_t transitions = dali_stats.rx_raw_transitions;
+  if (transitions < 20)
+    return 0; // unknown / not enough data
+
+  uint32_t dali_like = dali_stats.rx_run_3_5;
+  uint32_t serial_like = dali_stats.rx_run_1_2;
+  uint32_t filtered_like = dali_stats.rx_run_13_plus;
+
+  if (dali_like > (serial_like + filtered_like))
+    return 3; // likely Manchester DALI-shaped
+
+  if (serial_like >= dali_like || filtered_like > dali_like)
+    return 4; // likely serial/filtered/non-DALI waveform
+
+  return 0;
+}
+
+static void dali_print_raw_dump(const char* tag, uint8_t rx_len)
+{
+  (void)tag;
+  (void)rx_len;
+  return;
+
+  uint8_t raw[8] = {0};
+  uint8_t bits = dali.debug_get_last_rx_sample_bits();
+  uint8_t bytes = dali.debug_copy_last_rx_samples(raw, sizeof(raw));
+  if (bits == 0 || bytes == 0) {
+    return;
+  }
+
+  char sample_bits[65];
+  uint8_t bit_count = bits > 64 ? 64 : bits;
+  for (uint8_t i = 0; i < bit_count; i++) {
+    uint8_t b = raw[i >> 3];
+    sample_bits[i] = ((b >> (7 - (i & 0x07))) & 0x01) ? '1' : '0';
+  }
+  sample_bits[bit_count] = '\0';
+
+  dali_stats.rx_raw_dump_count++;
+  printf("DALI raw[%s] len=%u bits=%u inv=%u: %s\r\n",
+         tag,
+         (unsigned int)rx_len,
+         (unsigned int)bit_count,
+         (unsigned int)(dali_rx_inverted ? 1 : 0),
+         sample_bits);
+}
 
 static DALI_ForwardFrame dali_parse_forward_frame(uint8_t address_byte, uint8_t data_byte)
 {
@@ -56,6 +130,10 @@ bool DALI_FrameMatchesDevice(const DALI_ForwardFrame* frame)
     return false;
   }
 
+  if (dali_promiscuous_mode) {
+    return true;
+  }
+  
   if (frame->is_broadcast) {
     return true;
   }
@@ -68,6 +146,43 @@ bool DALI_FrameMatchesDevice(const DALI_ForwardFrame* frame)
   }
 
   return frame->short_address == dali_device_short_address;
+}
+
+void DALI_SetPromiscuousMode(bool enabled)
+{
+  dali_promiscuous_mode = enabled;
+}
+
+bool DALI_GetPromiscuousMode()
+{
+  return dali_promiscuous_mode;
+}
+
+void DALI_SetListenOnly(bool enabled)
+{
+  dali_listen_only = enabled;
+  if (enabled) {
+    gpio_set_dir(TX_PIN, GPIO_IN);
+    gpio_disable_pulls(TX_PIN);
+  } else {
+    gpio_set_dir(TX_PIN, GPIO_OUT);
+    gpio_put(TX_PIN, 1);
+  }
+}
+
+bool DALI_GetListenOnly()
+{
+  return dali_listen_only;
+}
+
+void DALI_SetRxInverted(bool enabled)
+{
+  dali_rx_inverted = enabled;
+}
+
+bool DALI_GetRxInverted()
+{
+  return dali_rx_inverted;
 }
 
 void DALI_SetDeviceShortAddress(uint8_t short_addr)
@@ -88,6 +203,33 @@ bool DALI_GetNextForwardFrame(DALI_ForwardFrame* frame, uint32_t timeout_ms)
 
   TickType_t wait_ticks = pdMS_TO_TICKS(timeout_ms);
   return xQueueReceive(dali_rx_frame_queue, frame, wait_ticks) == pdTRUE;
+}
+
+void DALI_GetDebugStats(DALI_DebugStats* stats)
+{
+  if (stats == NULL) {
+    return;
+  }
+  stats->rx_frames_total = dali_stats.rx_frames_total;
+  stats->rx_frames_matched = dali_stats.rx_frames_matched;
+  stats->rx_frames_filtered = dali_stats.rx_frames_filtered;
+  stats->rx_queue_drops = dali_stats.rx_queue_drops;
+  stats->rx_decode_errors = dali_stats.rx_decode_errors;
+  stats->rx_busy_count = dali_stats.rx_busy_count;
+  stats->rx_other_len_count = dali_stats.rx_other_len_count;
+  stats->rx_raw_high_samples = dali_stats.rx_raw_high_samples;
+  stats->rx_raw_low_samples = dali_stats.rx_raw_low_samples;
+  stats->rx_raw_transitions = dali_stats.rx_raw_transitions;
+  stats->rx_run_1_2 = dali_stats.rx_run_1_2;
+  stats->rx_run_3_5 = dali_stats.rx_run_3_5;
+  stats->rx_run_6_12 = dali_stats.rx_run_6_12;
+  stats->rx_run_13_plus = dali_stats.rx_run_13_plus;
+  stats->tx_drive_low_calls = dali_stats.tx_drive_low_calls;
+  stats->tx_release_calls = dali_stats.tx_release_calls;
+  stats->rx_raw_dump_count = dali_stats.rx_raw_dump_count;
+  stats->rx_inverted = (uint8_t)(dali_rx_inverted ? 1 : 0);
+  stats->listen_only = (uint8_t)(dali_listen_only ? 1 : 0);
+  stats->signal_guess = dali_guess_signal_kind();
 }
 
 static void dali_delay_ms(uint32_t delay_ms)
@@ -151,16 +293,49 @@ static int16_t dali_submit_request(DaliOp op, uint16_t cmd, uint8_t arg0, uint8_
 }
 
 uint8_t bus_is_high() {
-  return gpio_get(RX_PIN); //slow version
+  bool raw = gpio_get(RX_PIN); //slow version
+  if (!dali_probe_init) {
+    dali_probe_init = true;
+    dali_probe_last_level = raw ? 1 : 0;
+    dali_probe_run_len = 1;
+  } else {
+    uint8_t lv = raw ? 1 : 0;
+    if (lv == dali_probe_last_level) {
+      if (dali_probe_run_len < 0xFFFF)
+        dali_probe_run_len++;
+    } else {
+      dali_stats.rx_raw_transitions++;
+      dali_probe_commit_run(dali_probe_run_len);
+      dali_probe_last_level = lv;
+      dali_probe_run_len = 1;
+    }
+  }
+
+  if (raw) {
+    dali_stats.rx_raw_high_samples++;
+  } else {
+    dali_stats.rx_raw_low_samples++;
+  }
+  return dali_rx_inverted ? !raw : raw;
 }
 
 //use bus
 void bus_set_low() {
+  dali_stats.tx_drive_low_calls++;
+  if (dali_listen_only) {
+    return;
+  }
+  gpio_set_dir(TX_PIN, GPIO_OUT);
   gpio_put(TX_PIN, 0); //opto slow version
 }
 
 //release bus
 void bus_set_high() {
+  dali_stats.tx_release_calls++;
+  if (dali_listen_only) {
+    return;
+  }
+  gpio_set_dir(TX_PIN, GPIO_OUT);
   gpio_put(TX_PIN, 1); //opto slow version
 }
 
@@ -175,10 +350,10 @@ void DALI_Init() {
   //setup RX/TX pin
   gpio_init(RX_PIN);
   gpio_set_dir(RX_PIN, GPIO_IN);
+  gpio_disable_pulls(RX_PIN);
 
   gpio_init(TX_PIN);
-  gpio_set_dir(TX_PIN, GPIO_OUT);
-  gpio_put(TX_PIN, 1);
+  DALI_SetListenOnly(dali_listen_only);
   
   if (!dali_timer_started) {
     // 104 us is the closest integer period to the required 104.167 us at 9600 Hz.
@@ -223,10 +398,25 @@ static void DALI_ServiceTask(void *pv)
 
     uint8_t rx_len = dali.rx(rx_data);
     if (rx_len == 16 && dali_rx_frame_queue != NULL) {
+      dali_stats.rx_frames_total++;
+      dali_print_raw_dump("frame", rx_len);
       DALI_ForwardFrame frame = dali_parse_forward_frame(rx_data[0], rx_data[1]);
       if (DALI_FrameMatchesDevice(&frame)) {
-        (void)xQueueSend(dali_rx_frame_queue, &frame, 0);
+        dali_stats.rx_frames_matched++;
+        if (xQueueSend(dali_rx_frame_queue, &frame, 0) != pdTRUE) {
+          dali_stats.rx_queue_drops++;
+        }
+      } else {
+        dali_stats.rx_frames_filtered++;
       }
+    } else if (rx_len == 1) {
+      dali_stats.rx_busy_count++;
+    } else if (rx_len == 2) {
+      dali_stats.rx_decode_errors++;
+      dali_print_raw_dump("decodeErr", rx_len);
+    } else if (rx_len != 0) {
+      dali_stats.rx_other_len_count++;
+      dali_print_raw_dump("other", rx_len);
     }
 
     vTaskDelay(pdMS_TO_TICKS(1));

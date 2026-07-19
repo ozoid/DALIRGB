@@ -39,6 +39,8 @@ void show()
 //-------------------------------------------------------------------------------------------
 static void apply_dali_frame(const DALI_ForwardFrame& frame)
 {
+    
+
     if (!frame.is_command) {
         // Direct arc power command maps to global intensity.
         g_led_state.level = frame.data_byte;
@@ -48,26 +50,33 @@ static void apply_dali_frame(const DALI_ForwardFrame& frame)
 
     switch (frame.data_byte) {
         case DALI_OFF:
+            printf("OFF: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_OFF;
             g_led_state.level = 0;
             break;
         case DALI_RECALL_MAX_LEVEL:
+            printf("MAX: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_FILL;
             g_led_state.level = 254;
             break;
         case DALI_GO_TO_SCENE0:
+            printf("SC0: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_BREATH;
             break;
         case DALI_GO_TO_SCENE1:
+            printf("SC1: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_RAINBOW;
             break;
         case DALI_GO_TO_SCENE2:
+            printf("SC2: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_CHASE;
             break;
         case DALI_GO_TO_SCENE3:
+            printf("SC3: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_STROBE;
             break;
         case DALI_GO_TO_SCENE4:
+            printf("SC5: %02X ",frame.data_byte);
             g_led_state.pattern = PATTERN_SPARKLE;
             break;
         default:
@@ -83,9 +92,10 @@ static bool PollDaliMessageNonBlocking()
     }
 
     apply_dali_frame(frame);
-    printf("DALI RX addr=0x%02X data=0x%02X cmd=%d\r\n", frame.address_byte, frame.data_byte, frame.is_command ? 1 : 0);
+    printf("DALI RX: addr=0%02X (0x%02X) data=0x%02X cmd=%u grp=%u (0x%02X)  brd=%u\r\n", frame.short_address, frame.address_byte, frame.data_byte, frame.is_command ? 1u : 0u,frame.is_group ? 1u : 0u, frame.group_address, frame.is_broadcast ? 1u : 0u);
     return true;
 }
+
 //-------------------------------------------------------------------------------------------
 extern "C" void vAssertCalled(const char* file, int line) {
      // Print to USB-CDC if enabled; then halt
@@ -288,12 +298,25 @@ static bool RunActivePatternStep(uint32_t step)
     const UBaseType_t core1_mask = 1 << 1; // core
 
     stdio_init_all();
+    sleep_ms(1500);
+    printf("Boot: DALIRGB starting\r\n");
+
+    // Force DALI pins to a passive state immediately on boot.
+    gpio_init(TX_PIN);
+    gpio_set_dir(TX_PIN, GPIO_IN);
+    gpio_disable_pulls(TX_PIN);
+    gpio_init(RX_PIN);
+    gpio_set_dir(RX_PIN, GPIO_IN);
+    gpio_disable_pulls(RX_PIN);
+
     initGPIO();
     sleep_ms(20);
     initPIO();    
     
-    DALI_SetDeviceShortAddress(0);
+    DALI_SetDeviceShortAddress(5);
     DALI_SetDeviceGroupMask(0);
+    DALI_SetPromiscuousMode(true);
+    DALI_SetListenOnly(true);
 
     hard_assert(DALI_StartService(core0_mask, tskIDLE_PRIORITY + 2, 1024));
 
