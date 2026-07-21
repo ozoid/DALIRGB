@@ -25,16 +25,6 @@ static const uint8_t kDaliMinVisualLevel = 1;
 static const uint8_t kDaliMaxVisualLevel = 254;
 static const uint8_t kDaliStepVisualLevel = 25;
 
-enum ConsoleLedMode {
-    CONSOLE_LED_MODE_NORMAL = 0,
-    CONSOLE_LED_MODE_MONITOR
-};
-
-struct DaliLampVisualState {
-    uint8_t level;
-    uint8_t last_active_level;
-};
-
 static LedState g_led_state = {PATTERN_OFF, 0, 0, 0, 0};
 static volatile uint32_t g_dali_rx_count = 0;
 static volatile ConsoleLedMode g_console_led_mode = CONSOLE_LED_MODE_NORMAL;
@@ -71,8 +61,6 @@ void show()
 //-------------------------------------------------------------------------------------------
 static void apply_dali_frame(const DALI_ForwardFrame& frame)
 {
-    
-
     if (!frame.is_command) {
         // Direct arc power command maps to global intensity.
         g_led_state.level = frame.data_byte;
@@ -142,7 +130,6 @@ static bool PollDaliMessageNonBlocking()
     printf("DALI RX: addr=0%02X (0x%02X) data=0x%02X cmd=%u grp=%u (0x%02X)  brd=%u\r\n", frame.short_address, frame.address_byte, frame.data_byte, frame.is_command ? 1u : 0u,frame.is_group ? 1u : 0u, frame.group_address, frame.is_broadcast ? 1u : 0u);
     return true;
 }
-
 //-------------------------------------------------------------------------------------------
 extern "C" void vAssertCalled(const char* file, int line) {
      // Print to USB-CDC if enabled; then halt
@@ -362,7 +349,6 @@ static const char* console_led_mode_name()
 {
     return (g_console_led_mode == CONSOLE_LED_MODE_MONITOR) ? "monitor" : "normal";
 }
-
 //-------------------------------------------------------------------------------------------
 static uint32_t dali_level_to_visual_color(uint8_t level)
 {
@@ -370,13 +356,11 @@ static uint32_t dali_level_to_visual_color(uint8_t level)
     uint8_t red = (uint8_t)(255u - green);
     return urgb_u32(red, green, 0);
 }
-
 //-------------------------------------------------------------------------------------------
 static void sync_promiscuous_mode()
 {
     DALI_SetPromiscuousMode(g_manual_promiscuous_mode || (g_console_led_mode == CONSOLE_LED_MODE_MONITOR));
 }
-
 //-------------------------------------------------------------------------------------------
 static void reset_dali_visuals()
 {
@@ -393,7 +377,6 @@ static void reset_dali_visuals()
     g_broadcast_visual.level = 0;
     g_broadcast_visual.last_active_level = kDaliMaxVisualLevel;
 }
-
 //-------------------------------------------------------------------------------------------
 static void render_dali_visuals()
 {
@@ -412,7 +395,6 @@ static void render_dali_visuals()
     output_array[kDaliBroadcastLedIndex] = dali_level_to_visual_color(g_broadcast_visual.level);
     show();
 }
-
 //-------------------------------------------------------------------------------------------
 static void set_console_led_mode(ConsoleLedMode mode)
 {
@@ -427,7 +409,6 @@ static void set_console_led_mode(ConsoleLedMode mode)
         clear_pattern(true);
     }
 }
-
 //-------------------------------------------------------------------------------------------
 static void dali_visual_apply_level(DaliLampVisualState* state, uint8_t level)
 {
@@ -440,7 +421,6 @@ static void dali_visual_apply_level(DaliLampVisualState* state, uint8_t level)
         state->last_active_level = level;
     }
 }
-
 //-------------------------------------------------------------------------------------------
 static void dali_visual_step_level(DaliLampVisualState* state, int delta)
 {
@@ -458,7 +438,6 @@ static void dali_visual_step_level(DaliLampVisualState* state, int delta)
 
     dali_visual_apply_level(state, (uint8_t)next);
 }
-
 //-------------------------------------------------------------------------------------------
 static void dali_visual_apply_command(DaliLampVisualState* state, const DALI_ForwardFrame& frame)
 {
@@ -512,7 +491,6 @@ static void dali_visual_apply_command(DaliLampVisualState* state, const DALI_For
             break;
     }
 }
-
 //-------------------------------------------------------------------------------------------
 static void apply_dali_visual_frame(const DALI_ForwardFrame& frame)
 {
@@ -538,7 +516,6 @@ static void apply_dali_visual_frame(const DALI_ForwardFrame& frame)
         render_dali_visuals();
     }
 }
-
 //-------------------------------------------------------------------------------------------
 static void print_console_help()
 {
@@ -554,7 +531,6 @@ static void print_console_help()
     printf("  defaults             Restore startup defaults\r\n");
     printf("\r\n");
 }
-
 //-------------------------------------------------------------------------------------------
 static void print_console_status()
 {
@@ -568,7 +544,6 @@ static void print_console_status()
            g_dali_group_mask,
            (unsigned long)g_dali_rx_count);
 }
-
 //-------------------------------------------------------------------------------------------
 static bool parse_bool_arg(const char* value, bool* out)
 {
@@ -588,7 +563,6 @@ static bool parse_bool_arg(const char* value, bool* out)
 
     return false;
 }
-
 //-------------------------------------------------------------------------------------------
 static void apply_default_dali_settings()
 {
@@ -602,7 +576,6 @@ static void apply_default_dali_settings()
     DALI_SetListenOnly(true);
     DALI_SetRxInverted(false);
 }
-
 //-------------------------------------------------------------------------------------------
 static void handle_console_command(char* line)
 {
@@ -718,7 +691,6 @@ static void handle_console_command(char* line)
 
     printf("Unknown command: %s\r\n", command);
 }
-
 //-------------------------------------------------------------------------------------------
 static void vConsoleTask(void *pv)
 {
@@ -775,7 +747,6 @@ static void vConsoleTask(void *pv)
         }
     }
 }
-
 //-------------------------------------------------------------------------------------------
  static void vLEDTask(void *pv) {
      (void)pv;
@@ -812,7 +783,6 @@ static void vConsoleTask(void *pv)
      }
  }
 //-------------------------------------------------------------------------------------------
-
  int main(void) {
     const UBaseType_t core0_mask = 1 << 0; // core 0
     const UBaseType_t core1_mask = 1 << 1; // core
@@ -845,4 +815,3 @@ static void vConsoleTask(void *pv)
     vTaskStartScheduler();  // hands control to FreeRTOS (never returns)
     for(;;);                // safety
  }
-

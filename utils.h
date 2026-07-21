@@ -23,6 +23,16 @@ struct LedState {
     uint8_t repeat;
 };
 //-------------------------------------------------------------------------------------------
+enum ConsoleLedMode {
+    CONSOLE_LED_MODE_NORMAL = 0,
+    CONSOLE_LED_MODE_MONITOR
+};
+//-------------------------------------------------------------------------------------------
+struct DaliLampVisualState {
+    uint8_t level;
+    uint8_t last_active_level;
+};
+//-------------------------------------------------------------------------------------------
 typedef struct hsl {
     int h; 
     int s;
