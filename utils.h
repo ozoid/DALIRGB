@@ -18,7 +18,7 @@ enum LedPattern {
 struct LedState {
     LedPattern pattern;
     uint8_t level;
-    uint8_t color;
+    uint32_t color;
     uint8_t speed;
     uint8_t repeat;
 };

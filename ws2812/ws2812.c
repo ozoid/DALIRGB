@@ -12,7 +12,7 @@
 #include "hardware/clocks.h"
 #include "ws2812.pio.h"
 
-#define IS_RGBW true
+#define IS_RGBW false
 #define NUM_PIXELS 150
 
 #ifdef PICO_DEFAULT_WS2812_PIN

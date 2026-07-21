@@ -407,6 +407,7 @@ static void DALI_ServiceTask(void *pv)
           dali_stats.rx_queue_drops++;
         }
       } else {
+        //printf("not matched dali frame\n");
         dali_stats.rx_frames_filtered++;
       }
     } else if (rx_len == 1) {
