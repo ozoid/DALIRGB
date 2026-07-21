@@ -9,15 +9,15 @@
 //#include "ws2812/generated/ws2801.pio.h"
 
 #define IS_RGBW false
-#define LED_CLK1 21
+#define LED_CLK1 21 // not happy on this pin
 #define LED_DATA1 20
 #define LED_CLK0 19
 #define LED_DATA0 18
 
 static LedState g_led_state = {PATTERN_OFF, 0, 0, 0, 0};
 static volatile uint32_t g_dali_rx_count = 0;
-uint32_t output_array[16]={};
-uint8_t currentSequenceLength = 16;
+uint32_t output_array[96]={};
+uint8_t currentSequenceLength = 96;
 uint8_t brightness = 30;
 //-------------------------------------------------------------------------------------------
 static inline void put_pixel(uint32_t pixel_grb)
@@ -134,7 +134,7 @@ void initPIO()
     PIO pio = pio0;
     //PIO pioa = pio1;
     uint offset = pio_add_program(pio, &ws2812_program);
-    ws2812_program_init(pio, 0, offset, LED_CLK1, 800000, IS_RGBW);
+    ws2812_program_init(pio, 0, offset, LED_DATA0, 800000, IS_RGBW);
     //uint offset1 = pio_add_program(pioa, &ws2812_program);
     //ws2812_program_init(pioa, 0, offset1, LED_DATA1, 800000, IS_RGBW);
 }
